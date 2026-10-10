@@ -94,8 +94,30 @@ static void configure_core(void)
     set_string("Core", "SaveStatePath", SAVE_DIR);
     set_string("Core", "SaveSRAMPath", SAVE_DIR);
     set_string("Core", "ScreenshotPath", SAVE_DIR);
-    /* Esc would kill the emulator with no way back from the page */
-    set_int("CoreEvents", "Kbd Mapping Stop", 0);
+    /* Only keep the hotkeys a player wants (P pause, F5/F7 quick save/load;
+     * the page handles M for mute); the rest (Esc stops the emulator for good, F fast
+     * forwards, number keys switch save slots, ...) are easy to hit by
+     * accident in a browser game. */
+    {
+        static const char *disabled[] = {
+            "Kbd Mapping Stop", "Kbd Mapping Fullscreen", "Kbd Mapping Increment Slot",
+            "Kbd Mapping Reset", "Kbd Mapping Speed Down", "Kbd Mapping Speed Up",
+            "Kbd Mapping Screenshot", "Kbd Mapping Increase Volume",
+            "Kbd Mapping Decrease Volume", "Kbd Mapping Fast Forward",
+            "Kbd Mapping Frame Advance", "Kbd Mapping Gameshark",
+            "Kbd Mapping Speed Limiter Toggle", "Kbd Mapping Mute",
+        };
+        char name[32];
+        size_t i;
+
+        for (i = 0; i < sizeof(disabled) / sizeof(disabled[0]); i++)
+            set_int("CoreEvents", disabled[i], 0);
+        for (i = 0; i < 10; i++)
+        {
+            snprintf(name, sizeof(name), "Kbd Mapping Slot %u", (unsigned int) i);
+            set_int("CoreEvents", name, 0);
+        }
+    }
 }
 
 /* Must run after PluginStartup(): plugins reset sections that lack their
@@ -247,6 +269,22 @@ EMSCRIPTEN_KEEPALIVE void web_toggle_pause(void)
     int state = 0;
     CoreDoCommand(M64CMD_CORE_STATE_QUERY, M64CORE_EMU_STATE, &state);
     CoreDoCommand(state == M64EMU_PAUSED ? M64CMD_RESUME : M64CMD_PAUSE, 0, NULL);
+}
+
+/* pause (1) or resume (0) emulation, e.g. when the page loses focus */
+EMSCRIPTEN_KEEPALIVE void web_set_paused(int paused)
+{
+    int state = 0;
+    CoreDoCommand(M64CMD_CORE_STATE_QUERY, M64CORE_EMU_STATE, &state);
+    if (paused && state == M64EMU_RUNNING)
+        CoreDoCommand(M64CMD_PAUSE, 0, NULL);
+    else if (!paused && state == M64EMU_PAUSED)
+        CoreDoCommand(M64CMD_RESUME, 0, NULL);
+}
+
+EMSCRIPTEN_KEEPALIVE void web_set_muted(int muted)
+{
+    CoreDoCommand(M64CMD_CORE_STATE_SET, M64CORE_AUDIO_MUTE, &muted);
 }
 
 EMSCRIPTEN_KEEPALIVE void web_reset(void)

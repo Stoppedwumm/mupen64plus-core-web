@@ -219,8 +219,11 @@ FORCE=1 compile "$WEBDIR/frontend/main.c" "$BUILDDIR/obj/frontend/main.o" $FRONT
 rm -rf "$BUILDDIR/data" && mkdir -p "$BUILDDIR/data"
 cp "$COREDIR/data/mupen64plus.ini" "$BUILDDIR/data/"
 cp "$BUILDDIR/src/video-rice/data/RiceVideoLinux.ini" "$BUILDDIR/data/"
-cp "$BUILDDIR/src/input-sdl/data/InputAutoCfg.ini" "$BUILDDIR/data/"
-cat "$WEBDIR/frontend/InputAutoCfg-web.ini" >> "$BUILDDIR/data/InputAutoCfg.ini"
+# our sections ([Keyboard] layout, standard gamepads) replace the stock ones
+{
+    cat "$WEBDIR/frontend/InputAutoCfg-web.ini"
+    awk '/^\[/ { skip = ($0 == "[Keyboard]") } !skip' "$BUILDDIR/src/input-sdl/data/InputAutoCfg.ini"
+} > "$BUILDDIR/data/InputAutoCfg.ini"
 
 # link <output.js> <flags...>
 link() {
@@ -232,7 +235,7 @@ link() {
         -sMODULARIZE=1 -sEXPORT_NAME=createMupen64Plus \
         -sMIN_WEBGL_VERSION=1 -sMAX_WEBGL_VERSION=2 -sFULL_ES2=1 \
         -sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
-        -sEXPORTED_FUNCTIONS=_main,_web_save_state,_web_load_state,_web_toggle_pause,_web_reset,_web_stop,_web_frame_count,_web_set_speed_limiter \
+        -sEXPORTED_FUNCTIONS=_main,_web_save_state,_web_load_state,_web_toggle_pause,_web_set_paused,_web_set_muted,_web_reset,_web_stop,_web_frame_count,_web_set_speed_limiter \
         -lidbfs.js \
         --embed-file "$BUILDDIR/data@/m64p/data"
 }

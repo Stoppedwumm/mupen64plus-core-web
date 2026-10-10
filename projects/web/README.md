@@ -28,7 +28,7 @@ compiles everything and writes the site to `projects/web/dist/`:
 | `.htaccess`        | MIME type/compression settings for Apache            |
 
 Copy the contents of `dist/` to the web server. The page does not work when
-opened from `file://`. Other ROMs can be loaded with "Load another ROM…".
+opened from `file://`.
 
 Emscripten fetches its SDL2, zlib and libpng ports on first use. If
 downloads are blocked, clone them into the ports cache instead (see
@@ -68,10 +68,21 @@ downloads are blocked, clone them into the ports cache instead (see
   audio device failed to open; video-rice: swap red/blue when uploading
   textures, since WebGL has no BGRA texture format).
 
+## The page
+
+`shell/index.html` is a self-contained player page for the bundled game: the
+game fills the window (or the Gamplo iframe) at 4:3, behind a click-to-play
+splash that shows the controls and download progress. There is no other UI:
+mute and fullscreen buttons appear in the corner while the mouse moves, and
+the game pauses when the page loses focus ("Click to keep playing"), the way
+Flash games did. Only `game.zip` is loaded; there is no way to pick another
+ROM. Add `?debug` to the URL to log emulator output to the console.
+
 ## Controls
 
-Keyboard (input-sdl defaults): arrows = analog stick, Left Shift = A,
-Left Ctrl = B, Z = Z, X/C = L/R, Enter = Start, I/J/K/L = C buttons,
-W/A/S/D = D-pad, F5/F7 = save/load state, P = pause.
-Gamepads that the browser reports with the standard layout
+Keyboard (`frontend/InputAutoCfg-web.ini`): arrows = analog stick,
+Space = A (jump), X = B (punch), Z = Z (crouch), W/A/S/D = C buttons (camera),
+E = R (camera mode), Q = L, Enter = Start. F5/F7 = quick save/load, P = pause,
+M = mute; the core's other hotkeys (Esc, fast forward, save slots, ...) are
+disabled. Gamepads that the browser reports with the standard layout
 (`... STANDARD GAMEPAD ...` in Chromium) are mapped automatically.

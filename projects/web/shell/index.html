@@ -3,144 +3,202 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mupen64Plus Web</title>
+<title>Super Mario 64</title>
 <link rel="icon" href="data:,">
 <style>
   :root {
-    --bg: #111318;
-    --panel: #1b1e26;
-    --text: #e6e8ee;
-    --muted: #9aa1b2;
-    --accent: #e5484d;
-    --border: #2c303b;
+    --bg: #000;
+    --text: #fff;
+    --muted: rgba(255, 255, 255, .72);
+    --panel: rgba(12, 14, 22, .82);
+    --accent: #e52521;
+    --accent-dark: #a3150f;
+    --gold: #fbd000;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
-    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  main { max-width: 980px; margin: 0 auto; padding: 12px 16px; }
-  #screen { position: relative; width: min(100%, calc((100vh - 120px) * 4 / 3));
-    min-width: 240px; margin: 0 auto; aspect-ratio: 4 / 3; background: #000;
-    border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-  #canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block;
-    image-rendering: auto; outline: none; }
-  #overlay { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 12px;
-    align-items: center; justify-content: center; background: rgba(0,0,0,.75); text-align: center;
-    padding: 16px; }
-  #overlay.hidden { display: none; }
-  #status { color: var(--muted); min-height: 1.4em; }
-  button, label.button { appearance: none; border: 1px solid var(--border); background: var(--panel);
-    color: var(--text); padding: 8px 14px; border-radius: 6px; font: inherit; cursor: pointer; }
-  button:hover, label.button:hover { border-color: var(--muted); }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff;
-    font-size: 16px; padding: 10px 22px; }
-  button:disabled { opacity: .5; cursor: default; }
-  #controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; align-items: center; }
-  #controls .spacer { flex: 1; }
-  #fps { color: var(--muted); font-variant-numeric: tabular-nums; }
-  #player { color: var(--muted); }
-  select { background: var(--panel); color: var(--text); border: 1px solid var(--border);
-    border-radius: 6px; padding: 7px; font: inherit; }
-  details { background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
-    padding: 8px 12px; margin-top: 8px; }
-  summary { cursor: pointer; color: var(--muted); }
-  table { border-collapse: collapse; margin-top: 8px; }
-  td { padding: 2px 16px 2px 0; }
-  kbd { background: #2a2e39; border-radius: 4px; padding: 1px 6px; font-size: 12px; }
-  #log { white-space: pre-wrap; font: 12px/1.35 ui-monospace, monospace; color: var(--muted);
-    max-height: 220px; overflow: auto; margin: 8px 0 0; }
-  input[type=file] { display: none; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--bg);
+    color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    user-select: none; -webkit-user-select: none; }
+
+  /* the game: 4:3, as large as the frame allows, centered */
+  #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #screen { position: relative; aspect-ratio: 4 / 3; width: min(100vw, calc(100vh * 4 / 3)); }
+  /* !important: SDL sets an inline size on the canvas */
+  #canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important;
+    display: block; outline: none;
+    background: #000; }
+
+  .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 2.2vmin; text-align: center; padding: 4vmin; }
+  .overlay[hidden] { display: none; }
+
+  /* splash */
+  #splash { background: radial-gradient(ellipse at 50% 35%, #2b5cd6 0%, #142c78 55%, #070d24 100%); }
+  #splash h1 { margin: 0; font-size: clamp(28px, 9vmin, 84px); line-height: 1; font-weight: 900;
+    letter-spacing: .02em; color: var(--gold); text-shadow: 0 .06em 0 #b8860b, 0 .12em .25em rgba(0,0,0,.5); }
+  #splash h1 span { display: block; font-size: .55em; color: #fff; text-shadow: 0 .08em 0 #8a1410; }
+  #play { appearance: none; border: 0; cursor: pointer; font-family: inherit; font-weight: 800;
+    font-size: clamp(18px, 4.6vmin, 34px); line-height: 1;
+    color: #fff; background: var(--accent); padding: .6em 1.8em; border-radius: 999px;
+    box-shadow: 0 .18em 0 var(--accent-dark), 0 .4em 1em rgba(0,0,0,.4); transition: transform .08s; }
+  #play:hover:not(:disabled) { transform: translateY(-2px); }
+  #play:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 .06em 0 var(--accent-dark); }
+  #play:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+  #play:focus:not(:focus-visible) { outline: none; }
+  #play:disabled { cursor: default; background: #555; box-shadow: none; }
+  #progress { width: min(60%, 360px); height: 6px; border-radius: 3px; background: rgba(255,255,255,.18);
+    overflow: hidden; }
+  #progress div { height: 100%; width: 0; background: var(--gold); transition: width .2s; }
+  #status { color: var(--muted); font-size: clamp(12px, 2.4vmin, 16px); min-height: 1.4em; }
+
+  .keys { display: grid; grid-template-columns: auto auto; gap: .35em 1.2em; text-align: left;
+    font-size: clamp(11px, 2.3vmin, 15px); color: var(--muted); background: var(--panel);
+    padding: .9em 1.2em; border-radius: 10px; }
+  .keys b { color: #fff; font-weight: 600; }
+  kbd { display: inline-block; min-width: 1.6em; padding: .05em .4em; border-radius: 4px; text-align: center;
+    background: rgba(255,255,255,.14); border-bottom: 2px solid rgba(255,255,255,.25); color: #fff;
+    font-family: inherit; font-weight: 600; font-size: .92em; line-height: 1.3; }
+  .note { color: var(--muted); font-size: clamp(11px, 2.1vmin, 14px); }
+
+  /* paused / lost focus */
+  #paused { background: rgba(0, 0, 0, .6); cursor: pointer; }
+  #paused h2 { margin: 0; font-size: clamp(22px, 7vmin, 56px); font-weight: 900; color: var(--gold); }
+
+  /* corner buttons, shown while the mouse moves */
+  #corner { position: absolute; top: 1.5vmin; right: 1.5vmin; display: flex; gap: 1vmin;
+    opacity: 0; transition: opacity .3s; }
+  #corner.show { opacity: 1; }
+  #corner button { appearance: none; border: 0; cursor: pointer; width: clamp(30px, 6vmin, 44px);
+    aspect-ratio: 1; border-radius: 8px; background: var(--panel); color: #fff; display: grid;
+    place-items: center; padding: 0; }
+  #corner svg { width: 55%; height: 55%; fill: none; stroke: currentColor; stroke-width: 2.2;
+    stroke-linecap: round; stroke-linejoin: round; }
+
+  #toast { position: absolute; left: 50%; bottom: 4vmin; transform: translate(-50%, 1em); opacity: 0;
+    background: var(--panel); padding: .5em 1em; border-radius: 999px; font-size: clamp(12px, 2.4vmin, 16px);
+    transition: opacity .25s, transform .25s; pointer-events: none; white-space: nowrap; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
 </style>
 </head>
 <body>
-<main>
+<div id="stage">
   <div id="screen">
     <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
-    <div id="overlay">
-      <button id="start" class="primary" disabled>Loading…</button>
-      <label class="button" id="pick-label">Load another ROM…
-        <input type="file" id="pick" accept=".z64,.n64,.v64,.rom,.zip">
-      </label>
-      <div id="status">Loading emulator…</div>
+
+    <div id="splash" class="overlay">
+      <h1><span>Super</span>Mario 64</h1>
+      <button id="play" disabled>Loading…</button>
+      <div id="progress"><div></div></div>
+      <div id="status"></div>
+      <div class="keys">
+        <span><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd></span><b>Move</b>
+        <span><kbd>Space</kbd></span><b>Jump</b>
+        <span><kbd>X</kbd></span><b>Punch / kick</b>
+        <span><kbd>Z</kbd></span><b>Crouch / ground pound</b>
+        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><b>Camera</b>
+        <span><kbd>E</kbd></span><b>Camera mode</b>
+        <span><kbd>Enter</kbd></span><b>Start / menu</b>
+        <span><kbd>F5</kbd> <kbd>F7</kbd></span><b>Quick save / load</b>
+      </div>
+      <div class="note" id="save-note">Your progress is saved in this browser. Gamepads work too.</div>
     </div>
-  </div>
 
-  <div id="controls">
-    <button id="pause" disabled>Pause</button>
-    <button id="reset" disabled>Reset</button>
-    <select id="slot" aria-label="Save state slot">
-      <option value="0">Slot 0</option><option value="1">Slot 1</option>
-      <option value="2">Slot 2</option><option value="3">Slot 3</option>
-      <option value="4">Slot 4</option><option value="5">Slot 5</option>
-      <option value="6">Slot 6</option><option value="7">Slot 7</option>
-      <option value="8">Slot 8</option><option value="9">Slot 9</option>
-    </select>
-    <button id="save" disabled>Save state</button>
-    <button id="load" disabled>Load state</button>
-    <span class="spacer"></span>
-    <span id="player"></span>
-    <span id="fps"></span>
-    <button id="fullscreen">Fullscreen</button>
-  </div>
+    <div id="paused" class="overlay" hidden>
+      <h2>Paused</h2>
+      <div class="note">Click to keep playing</div>
+    </div>
 
-  <details>
-    <summary>Controls</summary>
-    <table>
-      <tr><td>Analog stick</td><td><kbd>←</kbd> <kbd>↑</kbd> <kbd>→</kbd> <kbd>↓</kbd></td></tr>
-      <tr><td>A / B</td><td><kbd>Left Shift</kbd> / <kbd>Left Ctrl</kbd></td></tr>
-      <tr><td>Z trigger</td><td><kbd>Z</kbd></td></tr>
-      <tr><td>L / R</td><td><kbd>X</kbd> / <kbd>C</kbd></td></tr>
-      <tr><td>Start</td><td><kbd>Enter</kbd></td></tr>
-      <tr><td>C buttons</td><td><kbd>I</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd></td></tr>
-      <tr><td>D-pad</td><td><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></td></tr>
-      <tr><td>Save / load state</td><td><kbd>F5</kbd> / <kbd>F7</kbd></td></tr>
-      <tr><td>Pause</td><td><kbd>P</kbd></td></tr>
-    </table>
-    <p>Gamepads using the browser's standard layout are mapped automatically
-       (connect before pressing Start). In-game saves and save states are stored in
-       this browser. When signed in on Gamplo, in-game saves are also synced to your
-       account; save states are too large for cloud saves and stay in this browser.</p>
-  </details>
-  <details>
-    <summary>Log</summary>
-    <div id="log"></div>
-  </details>
-</main>
+    <div id="corner">
+      <button id="mute" title="Mute (M)" aria-label="Mute">
+        <svg id="icon-sound" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+        <svg id="icon-muted" viewBox="0 0 24 24" style="display:none"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>
+      </button>
+      <button id="fullscreen" title="Fullscreen" aria-label="Fullscreen">
+        <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+      </button>
+    </div>
+
+    <div id="toast"></div>
+  </div>
+</div>
 
 <script>
 (() => {
   'use strict';
 
-  // ROM loaded by default; the first one that exists is used.
-  const DEFAULT_ROMS = ['game.zip', 'game.z64', 'game.n64', 'game.v64', 'game.rom'];
-  const RENDER_WIDTH = 640, RENDER_HEIGHT = 480;
+  const GAME_URL = 'game.zip';
   const SAVE_DIR = '/m64p/save';
 
   const $ = (id) => document.getElementById(id);
-  const canvas = $('canvas'), overlay = $('overlay'), status = $('status'), logEl = $('log');
-  const startBtn = $('start'), pick = $('pick');
-  const gameButtons = ['pause', 'reset', 'save', 'load'].map($);
+  const canvas = $('canvas'), splash = $('splash'), pausedEl = $('paused');
+  const playBtn = $('play'), statusEl = $('status'), bar = $('progress').firstElementChild;
+  const debug = new URLSearchParams(location.search).has('debug');
 
-  let module = null, defaultRom = null, running = false;
+  let module = null, running = false, romBytes = null, muted = false;
 
-  function log(text) {
-    console.log(text);
-    logEl.textContent += text + '\n';
-    if (logEl.textContent.length > 50000) logEl.textContent = logEl.textContent.slice(-40000);
-    logEl.scrollTop = logEl.scrollHeight;
+  function log(text) { if (debug || /rror/.test(text)) console.log(text); }
+  function setStatus(text) { statusEl.textContent = text; }
+
+  let toastTimer = 0;
+  function toast(text) {
+    const el = $('toast');
+    el.textContent = text;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
   }
 
-  function setStatus(text) { status.textContent = text; }
+  function updateSaveNote() {
+    if (!cloud.onGamplo) return;
+    $('save-note').textContent = cloud.player
+      ? 'Signed in as ' + cloud.player.displayName + ': your progress is saved to your Gamplo account.'
+      : 'Playing as a guest: sign in to Gamplo to keep your progress on any device.';
+  }
 
-  // Gamplo cloud saves. The SDK only exists when the page runs on Gamplo;
-  // elsewhere (or for guests) everything stays in IndexedDB. In-game saves
-  // (EEPROM/SRAM/FlashRAM/Controller Pak) are mirrored to one cloud slot.
-  // Save states are ~1 MB, far over the 100 KB slot limit, so they stay local.
+  function syncSaves() {
+    if (!module) return;
+    module.FS.syncfs(false, (err) => { if (err) console.warn('Saving to IndexedDB failed', err); });
+  }
+
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = src;
+      el.onload = resolve;
+      el.onerror = () => reject(new Error('could not load ' + src));
+      document.head.appendChild(el);
+    });
+  }
+
+  // Download with progress (the ROM is most of the page's weight)
+  async function download(url, onProgress) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const total = +res.headers.get('Content-Length') || 0;
+    if (!res.body || !total) return new Uint8Array(await res.arrayBuffer());
+    const reader = res.body.getReader(), chunks = [];
+    let received = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.length;
+      onProgress(received / total);
+    }
+    const out = new Uint8Array(received);
+    let offset = 0;
+    for (const c of chunks) { out.set(c, offset); offset += c.length; }
+    return out;
+  }
+
   const cloud = {
     SLOT: 0,
     MAX_BYTES: 100 * 1024,
     MIN_INTERVAL_MS: 7000,   // Gamplo allows 10 saves per minute
     FILE_RE: /\.(eep|sra|fla|mpk)$/i,
     enabled: false,
+    onGamplo: false,
+    player: null,
     lastSignature: null,
     lastUpload: 0,
     uploading: false,
@@ -155,12 +213,10 @@
           if (!window.Gamplo) return done();
           Gamplo.onReady(() => {
             const player = Gamplo.getPlayer();
-            if (player) {
-              this.enabled = true;
-              $('player').textContent = player.displayName + ' · saves sync to Gamplo';
-            } else {
-              $('player').textContent = 'Guest · sign in to sync saves';
-            }
+            this.onGamplo = true;
+            this.player = player;
+            this.enabled = !!player;
+            updateSaveNote();
             done();
           });
         }).catch(done);
@@ -264,85 +320,103 @@
     },
   };
 
-  function syncSaves() {
-    if (!module) return;
-    module.FS.syncfs(false, (err) => { if (err) console.warn('Saving to IndexedDB failed', err); });
+
+  // Render resolution: sharp on large and high-DPI screens, capped to keep
+  // the GPU load reasonable.
+  function renderSize() {
+    const rect = $('screen').getBoundingClientRect();
+    const h = Math.round(Math.min(Math.max(rect.height * (window.devicePixelRatio || 1), 480), 720) / 8) * 8;
+    return [Math.round(h * 4 / 3), h];
   }
 
-  async function findDefaultRom() {
-    for (const name of DEFAULT_ROMS) {
-      try {
-        const res = await fetch(name, { method: 'HEAD', cache: 'no-cache' });
-        if (res.ok) return name;
-      } catch (e) { /* try the next one */ }
-    }
-    return null;
-  }
-
-  async function startGame(name, bytes) {
-    if (running) return;
+  async function start() {
+    if (running || !module || !romBytes) return;
     running = true;
-    startBtn.disabled = true;
-    const path = '/' + name.replace(/[^A-Za-z0-9._-]/g, '_');
-    module.FS.writeFile(path, bytes);
-    setStatus('Loading saves…');
+    playBtn.disabled = true;
+    playBtn.textContent = 'Starting…';
+    module.FS.writeFile('/game.zip', romBytes);
+    romBytes = null;
     await cloud.restore();
-    setStatus('Starting…');
     canvas.focus();
+    const [w, h] = renderSize();
     const fail = (e) => {
       if (e === 'unwind' || (e && e.name === 'ExitStatus')) return;
-      log('Error: ' + e); setStatus('Error: ' + e);
+      console.error(e);
+      showError('Something went wrong. Reload the page to try again.');
     };
     try {
-      const result = module.callMain([path, String(RENDER_WIDTH), String(RENDER_HEIGHT)]);
+      const result = module.callMain(['/game.zip', String(w), String(h)]);
       if (result && result.catch) result.catch(fail);
     } catch (e) {
       fail(e);
     }
   }
 
-  async function startDefault() {
-    startBtn.disabled = true;
-    setStatus('Downloading ' + defaultRom + '…');
-    try {
-      const res = await fetch(defaultRom);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      startGame(defaultRom, new Uint8Array(await res.arrayBuffer()));
-    } catch (e) {
-      setStatus('Could not download ' + defaultRom + ': ' + e.message);
-      startBtn.disabled = false;
-    }
+  function showError(text) {
+    splash.hidden = false;
+    pausedEl.hidden = true;
+    playBtn.textContent = 'Reload';
+    playBtn.disabled = false;
+    playBtn.onclick = () => location.reload();
+    setStatus(text);
   }
 
-  startBtn.addEventListener('click', startDefault);
-  pick.addEventListener('change', async () => {
-    const file = pick.files[0];
-    if (!file || !module) return;
-    if (running) { location.reload(); return; }
-    startGame(file.name, new Uint8Array(await file.arrayBuffer()));
+  // Pause when the game loses keyboard focus (another tab, or a click
+  // outside the game frame), like a Flash game; a click resumes.
+  function pause() {
+    if (!running || !module || !splash.hidden) return;
+    module._web_set_paused(1);
+    pausedEl.hidden = false;
+  }
+  function resume() {
+    if (!running || !module) return;
+    pausedEl.hidden = true;
+    canvas.focus();
+    module._web_set_paused(0);
+  }
+  window.addEventListener('blur', pause);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { pause(); syncSaves(); cloud.upload(); }
   });
+  pausedEl.addEventListener('click', resume);
 
-  $('pause').addEventListener('click', () => module._web_toggle_pause());
-  $('reset').addEventListener('click', () => module._web_reset());
-  $('save').addEventListener('click', () => {
-    module._web_save_state(+$('slot').value);
-    setTimeout(syncSaves, 1500);
-  });
-  $('load').addEventListener('click', () => module._web_load_state(+$('slot').value));
-  $('fullscreen').addEventListener('click', () => {
-    const el = $('screen');
-    (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
-  });
-
-  // Stop the page from scrolling on keys the emulator uses
+  playBtn.addEventListener('click', start);
   window.addEventListener('keydown', (e) => {
-    if (running && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key))
-      e.preventDefault();
+    // Enter or Space on the splash starts the game
+    if (!running && (e.key === 'Enter' || e.key === ' ') && !playBtn.disabled) { e.preventDefault(); start(); return; }
+    if (!running) return;
+    if (!pausedEl.hidden) { resume(); return; }
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'Tab'].includes(e.key)) e.preventDefault();
+    if (e.key === 'F5') { e.preventDefault(); toast('Game saved'); setTimeout(syncSaves, 1500); }
+    if (e.key === 'F7') { e.preventDefault(); toast('Game loaded'); }
+    if (e.key === 'm' || e.key === 'M') setMuted(!muted);
   }, { passive: false });
 
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { syncSaves(); cloud.upload(); }
+  // corner buttons
+  function setMuted(value) {
+    muted = value;
+    module._web_set_muted(muted ? 1 : 0);
+    $('icon-sound').style.display = muted ? 'none' : '';
+    $('icon-muted').style.display = muted ? '' : 'none';
+    toast(muted ? 'Sound off' : 'Sound on');
+  }
+  $('mute').addEventListener('click', (e) => { e.stopPropagation(); setMuted(!muted); canvas.focus(); });
+  $('fullscreen').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const el = document.documentElement;
+    if (document.fullscreenElement) document.exitFullscreen();
+    else (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+    canvas.focus();
   });
+  let cornerTimer = 0;
+  window.addEventListener('mousemove', () => {
+    if (!running) return;
+    $('corner').classList.add('show');
+    clearTimeout(cornerTimer);
+    cornerTimer = setTimeout(() => $('corner').classList.remove('show'), 2000);
+  });
+  canvas.addEventListener('mousedown', () => canvas.focus());
+
   window.addEventListener('pagehide', () => { syncSaves(); cloud.upload(); });
   setInterval(() => { if (running) syncSaves(); }, 10000);
   setInterval(() => { if (running) cloud.upload(); }, 3000);
@@ -352,18 +426,9 @@
   const useJspi = typeof WebAssembly.Suspending === 'function' &&
                   !new URLSearchParams(location.search).has('asyncify');
 
-  function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      const el = document.createElement('script');
-      el.src = src;
-      el.onload = resolve;
-      el.onerror = () => reject(new Error('could not load ' + src));
-      document.head.appendChild(el);
-    });
-  }
-
   cloud.init();
-  loadScript(useJspi ? 'mupen64plus-jspi.js' : 'mupen64plus.js').then(() => createMupen64Plus({
+  setStatus('Loading…');
+  const emulator = loadScript(useJspi ? 'mupen64plus-jspi.js' : 'mupen64plus.js').then(() => createMupen64Plus({
     canvas,
     print: log,
     printErr: log,
@@ -377,46 +442,32 @@
       });
     }],
     onGameStart() {
-      overlay.classList.add('hidden');
-      let last = 0;
-      setInterval(() => {
-        const n = module._web_frame_count();
-        $('fps').textContent = running ? (n - last) + ' FPS' : '';
-        last = n;
-      }, 1000);
-      gameButtons.forEach((b) => (b.disabled = false));
+      splash.hidden = true;
+      if (!document.hasFocus()) pause();
     },
     onGameStop() {
       syncSaves();
       cloud.upload();
       running = false;
-      gameButtons.forEach((b) => (b.disabled = true));
-      overlay.classList.remove('hidden');
-      setStatus('Emulation stopped.');
-      startBtn.textContent = 'Reload';
-      startBtn.disabled = false;
-      startBtn.onclick = () => location.reload();
+      showError('The game stopped. Reload the page to play again.');
     },
-    onEmuState(state) {
-      // M64EMU_STOPPED = 1, M64EMU_RUNNING = 2, M64EMU_PAUSED = 3
-      $('pause').textContent = state === 3 ? 'Resume' : 'Pause';
-    },
-  })).then(async (m) => {
+  }));
+  const rom = download(GAME_URL, (f) => { bar.style.width = (f * 100).toFixed(1) + '%'; });
+
+  Promise.all([emulator, rom]).then(([m, bytes]) => {
     module = m;
-    log('Using ' + (useJspi ? 'JSPI' : 'Asyncify') + ' build');
     window.mupen = m;
-    defaultRom = await findDefaultRom();
-    if (defaultRom) {
-      startBtn.textContent = 'Start';
-      startBtn.disabled = false;
-      setStatus('Ready: ' + defaultRom);
-    } else {
-      startBtn.textContent = 'No game found';
-      setStatus('Choose a ROM file to play.');
-    }
+    romBytes = bytes;
+    bar.style.width = '100%';
+    $('progress').style.visibility = 'hidden';
+    setStatus('');
+    playBtn.textContent = 'Play';
+    playBtn.disabled = false;
+    playBtn.focus();
+    log('Using ' + (useJspi ? 'JSPI' : 'Asyncify') + ' build');
   }).catch((e) => {
-    log('Failed to load emulator: ' + e);
-    setStatus('Failed to load emulator: ' + e);
+    console.error(e);
+    showError('Could not load the game: ' + e.message);
   });
 })();
 </script>

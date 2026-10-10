@@ -8,9 +8,10 @@ AddType application/javascript .js
     AddOutputFilterByType DEFLATE application/wasm application/javascript text/html
 </IfModule>
 
+# Always revalidate, so an updated build is picked up on the next load
 <IfModule mod_headers.c>
-    <FilesMatch "\.(wasm|js)$">
-        Header set Cache-Control "public, max-age=86400"
+    <FilesMatch "\.(wasm|js|html)$">
+        Header set Cache-Control "no-cache"
     </FilesMatch>
 </IfModule>
 

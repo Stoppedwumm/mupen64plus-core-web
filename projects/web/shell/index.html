@@ -17,9 +17,9 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
     font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  main { max-width: 980px; margin: 0 auto; padding: 16px; }
-  h1 { font-size: 18px; margin: 0 0 12px; font-weight: 600; }
-  #screen { position: relative; width: 100%; aspect-ratio: 4 / 3; background: #000;
+  main { max-width: 980px; margin: 0 auto; padding: 12px 16px; }
+  #screen { position: relative; width: min(100%, calc((100vh - 120px) * 4 / 3));
+    min-width: 240px; margin: 0 auto; aspect-ratio: 4 / 3; background: #000;
     border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
   #canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block;
     image-rendering: auto; outline: none; }
@@ -37,6 +37,7 @@
   #controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; align-items: center; }
   #controls .spacer { flex: 1; }
   #fps { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #player { color: var(--muted); }
   select { background: var(--panel); color: var(--text); border: 1px solid var(--border);
     border-radius: 6px; padding: 7px; font: inherit; }
   details { background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
@@ -52,7 +53,6 @@
 </head>
 <body>
 <main>
-  <h1>Mupen64Plus Web</h1>
   <div id="screen">
     <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
     <div id="overlay">
@@ -77,6 +77,7 @@
     <button id="save" disabled>Save state</button>
     <button id="load" disabled>Load state</button>
     <span class="spacer"></span>
+    <span id="player"></span>
     <span id="fps"></span>
     <button id="fullscreen">Fullscreen</button>
   </div>
@@ -96,7 +97,8 @@
     </table>
     <p>Gamepads using the browser's standard layout are mapped automatically
        (connect before pressing Start). In-game saves and save states are stored in
-       this browser.</p>
+       this browser. When signed in on Gamplo, in-game saves are also synced to your
+       account; save states are too large for cloud saves and stay in this browser.</p>
   </details>
   <details>
     <summary>Log</summary>
@@ -104,7 +106,6 @@
   </details>
 </main>
 
-<script src="mupen64plus.js"></script>
 <script>
 (() => {
   'use strict';
@@ -130,6 +131,139 @@
 
   function setStatus(text) { status.textContent = text; }
 
+  // Gamplo cloud saves. The SDK only exists when the page runs on Gamplo;
+  // elsewhere (or for guests) everything stays in IndexedDB. In-game saves
+  // (EEPROM/SRAM/FlashRAM/Controller Pak) are mirrored to one cloud slot.
+  // Save states are ~1 MB, far over the 100 KB slot limit, so they stay local.
+  const cloud = {
+    SLOT: 0,
+    MAX_BYTES: 100 * 1024,
+    MIN_INTERVAL_MS: 7000,   // Gamplo allows 10 saves per minute
+    FILE_RE: /\.(eep|sra|fla|mpk)$/i,
+    enabled: false,
+    lastSignature: null,
+    lastUpload: 0,
+    uploading: false,
+    retryTimer: null,
+
+    // Resolves once the SDK is ready (or clearly unavailable).
+    init() {
+      this.ready = new Promise((resolve) => {
+        const done = () => resolve();
+        setTimeout(done, 5000);
+        loadScript('https://gamplo.com/sdk/gamplo.js').then(() => {
+          if (!window.Gamplo) return done();
+          Gamplo.onReady(() => {
+            const player = Gamplo.getPlayer();
+            if (player) {
+              this.enabled = true;
+              $('player').textContent = player.displayName + ' · saves sync to Gamplo';
+            } else {
+              $('player').textContent = 'Guest · sign in to sync saves';
+            }
+            done();
+          });
+        }).catch(done);
+      });
+      return this.ready;
+    },
+
+    files() {
+      const FS = module.FS, out = [];
+      for (const name of FS.readdir(SAVE_DIR)) {
+        if (!this.FILE_RE.test(name)) continue;
+        const st = FS.stat(SAVE_DIR + '/' + name);
+        out.push({ name, mtime: st.mtime.getTime(), size: st.size });
+      }
+      return out;
+    },
+
+    async gzip(bytes) {
+      const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    },
+
+    async gunzip(bytes) {
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    },
+
+    toBase64(bytes) {
+      let s = '';
+      for (let i = 0; i < bytes.length; i += 0x8000)
+        s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      return btoa(s);
+    },
+
+    fromBase64(text) {
+      return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+    },
+
+    // Bring in cloud saves that are newer than the local copies.
+    async restore() {
+      await this.ready;
+      if (!this.enabled) return;
+      try {
+        const save = await Gamplo.getSave(this.SLOT);
+        if (!save || save.format !== 'm64p-saves-1') return;
+        const local = Object.fromEntries(this.files().map((f) => [f.name, f]));
+        let restored = 0;
+        for (const [name, f] of Object.entries(save.files || {})) {
+          if (!this.FILE_RE.test(name) || name.includes('/')) continue;
+          if (local[name] && local[name].mtime >= f.mtime) continue;
+          const path = SAVE_DIR + '/' + name;
+          module.FS.writeFile(path, await this.gunzip(this.fromBase64(f.data)));
+          module.FS.utime(path, f.mtime, f.mtime);
+          restored++;
+        }
+        if (restored) { log('Restored ' + restored + ' save file(s) from Gamplo'); syncSaves(); }
+        this.lastSignature = this.signature();
+      } catch (e) {
+        log('Could not load cloud saves: ' + e.message);
+      }
+    },
+
+    signature() {
+      return JSON.stringify(this.files());
+    },
+
+    // Upload when a save file changed, respecting the rate limit.
+    async upload() {
+      if (!this.enabled || this.uploading || !module) return;
+      const sig = this.signature();
+      if (sig === this.lastSignature) return;
+      const wait = this.lastUpload + this.MIN_INTERVAL_MS - Date.now();
+      if (wait > 0) {
+        if (!this.retryTimer)
+          this.retryTimer = setTimeout(() => { this.retryTimer = null; this.upload(); }, wait);
+        return;
+      }
+      this.uploading = true;
+      try {
+        // newest first; drop the oldest games' saves if the slot overflows
+        const files = this.files().sort((a, b) => b.mtime - a.mtime);
+        const payload = { format: 'm64p-saves-1', files: {} };
+        let size = 64;
+        for (const f of files) {
+          const data = this.toBase64(await this.gzip(module.FS.readFile(SAVE_DIR + '/' + f.name)));
+          const entry = { mtime: f.mtime, data };
+          const entrySize = JSON.stringify(entry).length + f.name.length + 8;
+          if (size + entrySize > this.MAX_BYTES) { log('Cloud slot full, not syncing ' + f.name); continue; }
+          payload.files[f.name] = entry;
+          size += entrySize;
+        }
+        this.lastUpload = Date.now();
+        await Gamplo.setSave(payload, this.SLOT);
+        this.lastSignature = sig;
+      } catch (e) {
+        log('Cloud save failed: ' + e.message);
+        if (/403/.test(e.message)) this.enabled = false;
+      } finally {
+        this.uploading = false;
+      }
+    },
+  };
+
   function syncSaves() {
     if (!module) return;
     module.FS.syncfs(false, (err) => { if (err) console.warn('Saving to IndexedDB failed', err); });
@@ -145,18 +279,25 @@
     return null;
   }
 
-  function startGame(name, bytes) {
+  async function startGame(name, bytes) {
     if (running) return;
     running = true;
     startBtn.disabled = true;
     const path = '/' + name.replace(/[^A-Za-z0-9._-]/g, '_');
     module.FS.writeFile(path, bytes);
+    setStatus('Loading saves…');
+    await cloud.restore();
     setStatus('Starting…');
     canvas.focus();
+    const fail = (e) => {
+      if (e === 'unwind' || (e && e.name === 'ExitStatus')) return;
+      log('Error: ' + e); setStatus('Error: ' + e);
+    };
     try {
-      module.callMain([path, String(RENDER_WIDTH), String(RENDER_HEIGHT)]);
+      const result = module.callMain([path, String(RENDER_WIDTH), String(RENDER_HEIGHT)]);
+      if (result && result.catch) result.catch(fail);
     } catch (e) {
-      if (e !== 'unwind') { log('Error: ' + e); setStatus('Error: ' + e); }
+      fail(e);
     }
   }
 
@@ -199,11 +340,30 @@
       e.preventDefault();
   }, { passive: false });
 
-  document.addEventListener('visibilitychange', () => { if (document.hidden) syncSaves(); });
-  window.addEventListener('pagehide', syncSaves);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { syncSaves(); cloud.upload(); }
+  });
+  window.addEventListener('pagehide', () => { syncSaves(); cloud.upload(); });
   setInterval(() => { if (running) syncSaves(); }, 10000);
+  setInterval(() => { if (running) cloud.upload(); }, 3000);
 
-  createMupen64Plus({
+  // JSPI lets the emulator pause for the browser without slowing it down;
+  // browsers without it get the (slower) Asyncify build.
+  const useJspi = typeof WebAssembly.Suspending === 'function' &&
+                  !new URLSearchParams(location.search).has('asyncify');
+
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = src;
+      el.onload = resolve;
+      el.onerror = () => reject(new Error('could not load ' + src));
+      document.head.appendChild(el);
+    });
+  }
+
+  cloud.init();
+  loadScript(useJspi ? 'mupen64plus-jspi.js' : 'mupen64plus.js').then(() => createMupen64Plus({
     canvas,
     print: log,
     printErr: log,
@@ -228,6 +388,7 @@
     },
     onGameStop() {
       syncSaves();
+      cloud.upload();
       running = false;
       gameButtons.forEach((b) => (b.disabled = true));
       overlay.classList.remove('hidden');
@@ -240,8 +401,10 @@
       // M64EMU_STOPPED = 1, M64EMU_RUNNING = 2, M64EMU_PAUSED = 3
       $('pause').textContent = state === 3 ? 'Resume' : 'Pause';
     },
-  }).then(async (m) => {
+  })).then(async (m) => {
     module = m;
+    log('Using ' + (useJspi ? 'JSPI' : 'Asyncify') + ' build');
+    window.mupen = m;
     defaultRom = await findDefaultRom();
     if (defaultRom) {
       startBtn.textContent = 'Start';

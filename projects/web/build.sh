@@ -90,6 +90,11 @@ for p in $PLUGINS; do
         git -C "$dir" fetch -q origin "${PLUGIN_REV[$p]}" 2>/dev/null || git -C "$dir" fetch -q origin
         git -C "$dir" checkout -q "${PLUGIN_REV[$p]}"
     fi
+    # small web-specific fixes, kept in projects/web/patches/<plugin>.patch
+    patch="$WEBDIR/patches/$p.patch"
+    if [ -f "$patch" ] && ! git -C "$dir" apply --reverse --check "$patch" 2>/dev/null; then
+        git -C "$dir" apply "$patch"
+    fi
 done
 
 ###########################################################################
@@ -217,19 +222,31 @@ cp "$BUILDDIR/src/video-rice/data/RiceVideoLinux.ini" "$BUILDDIR/data/"
 cp "$BUILDDIR/src/input-sdl/data/InputAutoCfg.ini" "$BUILDDIR/data/"
 cat "$WEBDIR/frontend/InputAutoCfg-web.ini" >> "$BUILDDIR/data/InputAutoCfg.ini"
 
-echo "==> link"
+# link <output.js> <flags...>
+link() {
+    local out="$1"; shift
+    em++ $OPTFLAGS $PORTS \
+        $CORE_OBJS $PLUGIN_OBJS "$BUILDDIR/obj/plugin_tables.o" "$BUILDDIR/obj/frontend/main.o" \
+        -o "$out" --profiling-funcs ${LDFLAGS:-} "$@" \
+        -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=134217728 -sSTACK_SIZE=1048576 \
+        -sMODULARIZE=1 -sEXPORT_NAME=createMupen64Plus \
+        -sMIN_WEBGL_VERSION=1 -sMAX_WEBGL_VERSION=2 -sFULL_ES2=1 \
+        -sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
+        -sEXPORTED_FUNCTIONS=_main,_web_save_state,_web_load_state,_web_toggle_pause,_web_reset,_web_stop,_web_frame_count,_web_set_speed_limiter \
+        -lidbfs.js \
+        --embed-file "$BUILDDIR/data@/m64p/data"
+}
+
+# The core's main loop never returns, so it has to be suspended to give the
+# browser a chance to run. JSPI (WebAssembly JavaScript Promise Integration)
+# does that natively at no cost to the emulation code; Asyncify instruments
+# every function and is much slower, so it is only the fallback for browsers
+# without JSPI. The page picks the right one.
+echo "==> link (JSPI)"
 mkdir -p "$DISTDIR"
-em++ $OPTFLAGS $PORTS \
-    $CORE_OBJS $PLUGIN_OBJS "$BUILDDIR/obj/plugin_tables.o" "$BUILDDIR/obj/frontend/main.o" \
-    -o "$DISTDIR/mupen64plus.js" ${LDFLAGS:-} \
-    -sASYNCIFY=1 -sASYNCIFY_STACK_SIZE=262144 \
-    -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=134217728 -sSTACK_SIZE=1048576 \
-    -sMODULARIZE=1 -sEXPORT_NAME=createMupen64Plus \
-    -sMIN_WEBGL_VERSION=1 -sMAX_WEBGL_VERSION=2 -sFULL_ES2=1 \
-    -sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
-    -sEXPORTED_FUNCTIONS=_main,_web_save_state,_web_load_state,_web_toggle_pause,_web_reset,_web_stop,_web_frame_count \
-    -lidbfs.js \
-    --embed-file "$BUILDDIR/data@/m64p/data"
+link "$DISTDIR/mupen64plus-jspi.js" -sJSPI=1
+echo "==> link (Asyncify)"
+link "$DISTDIR/mupen64plus.js" -sASYNCIFY=1 -sASYNCIFY_STACK_SIZE=262144
 
 cp "$WEBDIR/shell/index.html" "$WEBDIR/shell/.htaccess" "$DISTDIR/"
 if [ $# -ge 1 ]; then

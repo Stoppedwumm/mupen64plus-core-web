@@ -86,9 +86,9 @@ static void set_string(const char *section, const char *name, const char *value)
         ConfigSetParameter(handle, name, M64TYPE_STRING, value);
 }
 
-static void configure(int width, int height)
+static void configure_core(void)
 {
-    /* core: cached interpreter is the fastest option without a JIT */
+    /* cached interpreter is the fastest option without a JIT */
     set_int("Core", "R4300Emulator", 1);
     set_bool("Core", "OnScreenDisplay", 0);
     set_string("Core", "SaveStatePath", SAVE_DIR);
@@ -96,7 +96,12 @@ static void configure(int width, int height)
     set_string("Core", "ScreenshotPath", SAVE_DIR);
     /* Esc would kill the emulator with no way back from the page */
     set_int("CoreEvents", "Kbd Mapping Stop", 0);
+}
 
+/* Must run after PluginStartup(): plugins reset sections that lack their
+ * config version number, which would throw these settings away. */
+static void configure_plugins(int width, int height)
+{
     set_int("Video-General", "ScreenWidth", width);
     set_int("Video-General", "ScreenHeight", height);
     set_bool("Video-General", "Fullscreen", 0);
@@ -106,7 +111,10 @@ static void configure(int width, int height)
      * makes the frame rate stutter in the browser */
     set_bool("Audio-SDL", "AUDIO_SYNC", 0);
     set_string("Audio-SDL", "RESAMPLE", "trivial");
+    /* the browser's audio callback runs on the main thread, so keep
+     * enough buffered to ride out a slow frame without crackling */
     set_int("Audio-SDL", "SECONDARY_BUFFER_SIZE", 2048);
+    set_int("Audio-SDL", "PRIMARY_BUFFER_TARGET", 6144);
 }
 
 static unsigned char *read_file(const char *path, size_t *size)
@@ -246,6 +254,11 @@ EMSCRIPTEN_KEEPALIVE void web_reset(void)
     CoreDoCommand(M64CMD_RESET, 0, NULL);
 }
 
+EMSCRIPTEN_KEEPALIVE void web_set_speed_limiter(int enabled)
+{
+    CoreDoCommand(M64CMD_CORE_STATE_SET, M64CORE_SPEED_LIMITER, &enabled);
+}
+
 EMSCRIPTEN_KEEPALIVE void web_stop(void)
 {
     CoreDoCommand(M64CMD_STOP, 0, NULL);
@@ -266,7 +279,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed to start the mupen64plus core\n");
         return 1;
     }
-    configure(width, height);
+    configure_core();
 
     rom = load_rom(rom_path, &rom_size);
     if (rom == NULL)
@@ -301,6 +314,7 @@ int main(int argc, char *argv[])
         }
     }
 
+    configure_plugins(width, height);
     CoreDoCommand(M64CMD_SET_FRAME_CALLBACK, 0, (void *) frame_callback);
     EM_ASM({ if (Module.onGameStart) Module.onGameStart(); });
     CoreDoCommand(M64CMD_EXECUTE, 0, NULL);

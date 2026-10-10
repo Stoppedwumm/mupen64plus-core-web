@@ -22,8 +22,8 @@ compiles everything and writes the site to `projects/web/dist/`:
 | File               | Purpose                                              |
 |--------------------|------------------------------------------------------|
 | `index.html`       | Player page                                          |
-| `mupen64plus.js`   | Emscripten loader                                    |
-| `mupen64plus.wasm` | Core + plugins                                       |
+| `mupen64plus-jspi.js/.wasm` | Core + plugins, JSPI build (Chrome, Edge, ...) |
+| `mupen64plus.js/.wasm`      | Core + plugins, Asyncify build (other browsers) |
 | `game.*`           | ROM loaded by "Start" (`.zip`, `.z64`, `.n64`, `.v64`) |
 | `.htaccess`        | MIME type/compression settings for Apache            |
 
@@ -44,14 +44,27 @@ downloads are blocked, clone them into the ports cache instead (see
   `gen_plugin_tables.py` then emits a symbol table per plugin, and
   `src/osal/dynamiclib_emscripten.c` resolves `osal_dynlib_getproc()` against
   those tables, with the core's own API exposed the same way.
-* **Main loop:** the core runs its emulation loop inside `CoreDoCommand(M64CMD_EXECUTE)`.
-  It is built with Asyncify, and `apply_speed_limiter()` in `src/main/main.c`
-  yields to the browser once per VI so that frames are presented and input
-  and audio events are handled.
+* **Main loop:** the core runs its emulation loop inside `CoreDoCommand(M64CMD_EXECUTE)`,
+  and `apply_speed_limiter()` in `src/main/main.c` suspends it to let the
+  browser present frames and handle input and audio: it sleeps for the rest
+  of each VI, or when running behind yields at least every 8 ms through a
+  `MessageChannel` round trip, since `setTimeout(0)` is clamped to 4 ms.
+  Suspension uses JSPI where the browser supports it and Asyncify otherwise
+  (add `?asyncify` to the URL to force the fallback); the page picks the build.
 * **CPU:** the cached interpreter is used, since there is no JIT for WebAssembly.
 * **Video:** video-rice renders through its GLES2 path on WebGL.
 * **Saves:** in-game saves and save states are written to `/m64p/save`,
   which is backed by IndexedDB, so they persist in the browser.
+* **Gamplo:** the page loads the [Gamplo](https://gamplo.com) SDK. For a
+  signed-in player, in-game saves (`.eep`, `.sra`, `.fla`, `.mpk`) are gzipped
+  and mirrored to cloud save slot 0, uploaded when they change (at most every
+  7 s, within Gamplo's 10 saves/minute) and restored before the game boots
+  when the cloud copy is newer. Save states (~1 MB compressed) do not fit a
+  100 KB cloud slot and stay in the browser. Outside Gamplo or as a guest,
+  everything stays local.
+* **Plugin patches:** `patches/<plugin>.patch` is applied on top of the pinned
+  plugin sources (audio-sdl: avoid dividing by a zero sample rate when the
+  audio device failed to open).
 
 ## Controls
 

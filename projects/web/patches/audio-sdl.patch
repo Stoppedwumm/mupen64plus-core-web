@@ -1,0 +1,36 @@
+diff --git a/src/sdl_backend.c b/src/sdl_backend.c
+index 572aae3..caa0b55 100644
+--- a/src/sdl_backend.c
++++ b/src/sdl_backend.c
+@@ -96,11 +96,19 @@ static void my_audio_callback(void* userdata, unsigned char* stream, int len)
+     /* mark the time, for synchronization on the input side */
+     sdl_backend->last_cb_time = SDL_GetTicks();
+ 
++    size_t available;
++    size_t consumed;
++
++    /* the device may not be (re)opened successfully yet */
++    if (sdl_backend->output_frequency == 0 || sdl_backend->speed_factor == 0 || sdl_backend->input_frequency == 0)
++    {
++        memset(stream, 0, len);
++        return;
++    }
++
+     unsigned int newsamplerate = sdl_backend->output_frequency * 100 / sdl_backend->speed_factor;
+     unsigned int oldsamplerate = sdl_backend->input_frequency;
+     size_t needed = (len * oldsamplerate) / newsamplerate;
+-    size_t available;
+-    size_t consumed;
+ 
+     const void* src = cbuff_tail(&sdl_backend->primary_buffer, &available);
+     if ((available > 0) && (available >= needed))
+@@ -395,6 +403,9 @@ static size_t estimate_level_at_next_audio_cb(struct sdl_backend* sdl_backend)
+     unsigned int now = SDL_GetTicks();
+ 
+     /* NOTE: given that we only access "available" counter from cbuff, we don't need to protect it's access with LockAudio/UnlockAudio */
++    if (sdl_backend->output_frequency == 0 || sdl_backend->input_frequency == 0 || sdl_backend->speed_factor == 0)
++        return 0;
++
+     cbuff_tail(&sdl_backend->primary_buffer, &available);
+ 
+     /* Start by calculating the current Primary buffer fullness in terms of output samples */

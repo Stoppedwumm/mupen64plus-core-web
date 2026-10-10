@@ -965,6 +965,26 @@ void new_frame(void)
     }
 }
 
+#if defined(__EMSCRIPTEN__)
+/* Suspend execution (through JSPI or Asyncify) and let the browser run.
+ * A zero wait is done with a MessageChannel round trip, as setTimeout(0)
+ * is clamped to 4ms by browsers. */
+EM_ASYNC_JS(void, browser_yield, (double ms), {
+    if (ms > 0) {
+        await new Promise(resolve => setTimeout(resolve, ms));
+        return;
+    }
+    if (!Module.yieldChannel) {
+        Module.yieldChannel = new MessageChannel();
+        Module.yieldChannel.port1.onmessage = () => Module.yieldResolve();
+    }
+    await new Promise(resolve => {
+        Module.yieldResolve = resolve;
+        Module.yieldChannel.port2.postMessage(0);
+    });
+});
+#endif
+
 static void apply_speed_limiter(void)
 {
     static unsigned long totalVIs = 0;
@@ -1019,12 +1039,24 @@ static void apply_speed_limiter(void)
 
 #if defined(__EMSCRIPTEN__)
     /* The browser only presents frames and runs events/audio while we are
-     * not executing, so hand control back to it once per VI (via Asyncify),
-     * sleeping for whatever is left of this frame's time slice. */
-    if (l_MainSpeedLimit && sleepTime > 0 && sleepTime < maxSleepNeeded*SpeedFactorMultiple)
-        emscripten_sleep((unsigned int) sleepTime);
-    else
-        emscripten_sleep(0);
+     * not executing, so hand control back to it: sleep for whatever is left
+     * of this VI's time slice, or, when running behind, still yield every
+     * few milliseconds so the page stays responsive. */
+    {
+        static double lastYield = 0;
+        double now = emscripten_get_now();
+
+        if (l_MainSpeedLimit && sleepTime >= 1 && sleepTime < maxSleepNeeded*SpeedFactorMultiple)
+        {
+            browser_yield(sleepTime);
+            lastYield = emscripten_get_now();
+        }
+        else if (now - lastYield >= 8)
+        {
+            browser_yield(0);
+            lastYield = emscripten_get_now();
+        }
+    }
 #else
     if(l_MainSpeedLimit && sleepTime > 0 && sleepTime < maxSleepNeeded*SpeedFactorMultiple)
     {

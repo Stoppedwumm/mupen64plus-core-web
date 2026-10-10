@@ -4,3 +4,5 @@
 /.vscode
 /projects/unix/*.dll
 /src/asm_defines/*.h
+/projects/web/build/
+/projects/web/dist/

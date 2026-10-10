@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mupen64Plus Web</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #111318;
+    --panel: #1b1e26;
+    --text: #e6e8ee;
+    --muted: #9aa1b2;
+    --accent: #e5484d;
+    --border: #2c303b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 12px; font-weight: 600; }
+  #screen { position: relative; width: 100%; aspect-ratio: 4 / 3; background: #000;
+    border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  #canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+    image-rendering: auto; outline: none; }
+  #overlay { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 12px;
+    align-items: center; justify-content: center; background: rgba(0,0,0,.75); text-align: center;
+    padding: 16px; }
+  #overlay.hidden { display: none; }
+  #status { color: var(--muted); min-height: 1.4em; }
+  button, label.button { appearance: none; border: 1px solid var(--border); background: var(--panel);
+    color: var(--text); padding: 8px 14px; border-radius: 6px; font: inherit; cursor: pointer; }
+  button:hover, label.button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff;
+    font-size: 16px; padding: 10px 22px; }
+  button:disabled { opacity: .5; cursor: default; }
+  #controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; align-items: center; }
+  #controls .spacer { flex: 1; }
+  #fps { color: var(--muted); font-variant-numeric: tabular-nums; }
+  select { background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px; font: inherit; }
+  details { background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 12px; margin-top: 8px; }
+  summary { cursor: pointer; color: var(--muted); }
+  table { border-collapse: collapse; margin-top: 8px; }
+  td { padding: 2px 16px 2px 0; }
+  kbd { background: #2a2e39; border-radius: 4px; padding: 1px 6px; font-size: 12px; }
+  #log { white-space: pre-wrap; font: 12px/1.35 ui-monospace, monospace; color: var(--muted);
+    max-height: 220px; overflow: auto; margin: 8px 0 0; }
+  input[type=file] { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Mupen64Plus Web</h1>
+  <div id="screen">
+    <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+    <div id="overlay">
+      <button id="start" class="primary" disabled>Loading…</button>
+      <label class="button" id="pick-label">Load another ROM…
+        <input type="file" id="pick" accept=".z64,.n64,.v64,.rom,.zip">
+      </label>
+      <div id="status">Loading emulator…</div>
+    </div>
+  </div>
+
+  <div id="controls">
+    <button id="pause" disabled>Pause</button>
+    <button id="reset" disabled>Reset</button>
+    <select id="slot" aria-label="Save state slot">
+      <option value="0">Slot 0</option><option value="1">Slot 1</option>
+      <option value="2">Slot 2</option><option value="3">Slot 3</option>
+      <option value="4">Slot 4</option><option value="5">Slot 5</option>
+      <option value="6">Slot 6</option><option value="7">Slot 7</option>
+      <option value="8">Slot 8</option><option value="9">Slot 9</option>
+    </select>
+    <button id="save" disabled>Save state</button>
+    <button id="load" disabled>Load state</button>
+    <span class="spacer"></span>
+    <span id="fps"></span>
+    <button id="fullscreen">Fullscreen</button>
+  </div>
+
+  <details>
+    <summary>Controls</summary>
+    <table>
+      <tr><td>Analog stick</td><td><kbd>←</kbd> <kbd>↑</kbd> <kbd>→</kbd> <kbd>↓</kbd></td></tr>
+      <tr><td>A / B</td><td><kbd>Left Shift</kbd> / <kbd>Left Ctrl</kbd></td></tr>
+      <tr><td>Z trigger</td><td><kbd>Z</kbd></td></tr>
+      <tr><td>L / R</td><td><kbd>X</kbd> / <kbd>C</kbd></td></tr>
+      <tr><td>Start</td><td><kbd>Enter</kbd></td></tr>
+      <tr><td>C buttons</td><td><kbd>I</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd></td></tr>
+      <tr><td>D-pad</td><td><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></td></tr>
+      <tr><td>Save / load state</td><td><kbd>F5</kbd> / <kbd>F7</kbd></td></tr>
+      <tr><td>Pause</td><td><kbd>P</kbd></td></tr>
+    </table>
+    <p>Gamepads using the browser's standard layout are mapped automatically
+       (connect before pressing Start). In-game saves and save states are stored in
+       this browser.</p>
+  </details>
+  <details>
+    <summary>Log</summary>
+    <div id="log"></div>
+  </details>
+</main>
+
+<script src="mupen64plus.js"></script>
+<script>
+(() => {
+  'use strict';
+
+  // ROM loaded by default; the first one that exists is used.
+  const DEFAULT_ROMS = ['game.zip', 'game.z64', 'game.n64', 'game.v64', 'game.rom'];
+  const RENDER_WIDTH = 640, RENDER_HEIGHT = 480;
+  const SAVE_DIR = '/m64p/save';
+
+  const $ = (id) => document.getElementById(id);
+  const canvas = $('canvas'), overlay = $('overlay'), status = $('status'), logEl = $('log');
+  const startBtn = $('start'), pick = $('pick');
+  const gameButtons = ['pause', 'reset', 'save', 'load'].map($);
+
+  let module = null, defaultRom = null, running = false;
+
+  function log(text) {
+    console.log(text);
+    logEl.textContent += text + '\n';
+    if (logEl.textContent.length > 50000) logEl.textContent = logEl.textContent.slice(-40000);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function setStatus(text) { status.textContent = text; }
+
+  function syncSaves() {
+    if (!module) return;
+    module.FS.syncfs(false, (err) => { if (err) console.warn('Saving to IndexedDB failed', err); });
+  }
+
+  async function findDefaultRom() {
+    for (const name of DEFAULT_ROMS) {
+      try {
+        const res = await fetch(name, { method: 'HEAD', cache: 'no-cache' });
+        if (res.ok) return name;
+      } catch (e) { /* try the next one */ }
+    }
+    return null;
+  }
+
+  function startGame(name, bytes) {
+    if (running) return;
+    running = true;
+    startBtn.disabled = true;
+    const path = '/' + name.replace(/[^A-Za-z0-9._-]/g, '_');
+    module.FS.writeFile(path, bytes);
+    setStatus('Starting…');
+    canvas.focus();
+    try {
+      module.callMain([path, String(RENDER_WIDTH), String(RENDER_HEIGHT)]);
+    } catch (e) {
+      if (e !== 'unwind') { log('Error: ' + e); setStatus('Error: ' + e); }
+    }
+  }
+
+  async function startDefault() {
+    startBtn.disabled = true;
+    setStatus('Downloading ' + defaultRom + '…');
+    try {
+      const res = await fetch(defaultRom);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      startGame(defaultRom, new Uint8Array(await res.arrayBuffer()));
+    } catch (e) {
+      setStatus('Could not download ' + defaultRom + ': ' + e.message);
+      startBtn.disabled = false;
+    }
+  }
+
+  startBtn.addEventListener('click', startDefault);
+  pick.addEventListener('change', async () => {
+    const file = pick.files[0];
+    if (!file || !module) return;
+    if (running) { location.reload(); return; }
+    startGame(file.name, new Uint8Array(await file.arrayBuffer()));
+  });
+
+  $('pause').addEventListener('click', () => module._web_toggle_pause());
+  $('reset').addEventListener('click', () => module._web_reset());
+  $('save').addEventListener('click', () => {
+    module._web_save_state(+$('slot').value);
+    setTimeout(syncSaves, 1500);
+  });
+  $('load').addEventListener('click', () => module._web_load_state(+$('slot').value));
+  $('fullscreen').addEventListener('click', () => {
+    const el = $('screen');
+    (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+  });
+
+  // Stop the page from scrolling on keys the emulator uses
+  window.addEventListener('keydown', (e) => {
+    if (running && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key))
+      e.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener('visibilitychange', () => { if (document.hidden) syncSaves(); });
+  window.addEventListener('pagehide', syncSaves);
+  setInterval(() => { if (running) syncSaves(); }, 10000);
+
+  createMupen64Plus({
+    canvas,
+    print: log,
+    printErr: log,
+    preRun: [(m) => {
+      m.FS.mkdirTree(SAVE_DIR);
+      m.FS.mount(m.IDBFS, {}, SAVE_DIR);
+      m.addRunDependency('idbfs');
+      m.FS.syncfs(true, (err) => {
+        if (err) console.warn('Loading saves from IndexedDB failed', err);
+        m.removeRunDependency('idbfs');
+      });
+    }],
+    onGameStart() {
+      overlay.classList.add('hidden');
+      let last = 0;
+      setInterval(() => {
+        const n = module._web_frame_count();
+        $('fps').textContent = running ? (n - last) + ' FPS' : '';
+        last = n;
+      }, 1000);
+      gameButtons.forEach((b) => (b.disabled = false));
+    },
+    onGameStop() {
+      syncSaves();
+      running = false;
+      gameButtons.forEach((b) => (b.disabled = true));
+      overlay.classList.remove('hidden');
+      setStatus('Emulation stopped.');
+      startBtn.textContent = 'Reload';
+      startBtn.disabled = false;
+      startBtn.onclick = () => location.reload();
+    },
+    onEmuState(state) {
+      // M64EMU_STOPPED = 1, M64EMU_RUNNING = 2, M64EMU_PAUSED = 3
+      $('pause').textContent = state === 3 ? 'Resume' : 'Pause';
+    },
+  }).then(async (m) => {
+    module = m;
+    defaultRom = await findDefaultRom();
+    if (defaultRom) {
+      startBtn.textContent = 'Start';
+      startBtn.disabled = false;
+      setStatus('Ready: ' + defaultRom);
+    } else {
+      startBtn.textContent = 'No game found';
+      setStatus('Choose a ROM file to play.');
+    }
+  }).catch((e) => {
+    log('Failed to load emulator: ' + e);
+    setStatus('Failed to load emulator: ' + e);
+  });
+})();
+</script>
+</body>
+</html>

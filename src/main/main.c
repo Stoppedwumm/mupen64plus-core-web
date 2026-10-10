@@ -36,6 +36,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__EMSCRIPTEN__)
+#include <emscripten.h>
+#endif
+
 #define M64P_CORE_PROTOTYPES 1
 #include "api/callbacks.h"
 #include "api/config.h"
@@ -1013,6 +1017,15 @@ static void apply_speed_limiter(void)
         totalVIs += (unsigned long)(minSleepNeeded/AdjustedLimit);
     }
 
+#if defined(__EMSCRIPTEN__)
+    /* The browser only presents frames and runs events/audio while we are
+     * not executing, so hand control back to it once per VI (via Asyncify),
+     * sleeping for whatever is left of this frame's time slice. */
+    if (l_MainSpeedLimit && sleepTime > 0 && sleepTime < maxSleepNeeded*SpeedFactorMultiple)
+        emscripten_sleep((unsigned int) sleepTime);
+    else
+        emscripten_sleep(0);
+#else
     if(l_MainSpeedLimit && sleepTime > 0 && sleepTime < maxSleepNeeded*SpeedFactorMultiple)
     {
         while(sleepTime >= 0) {
@@ -1023,6 +1036,7 @@ static void apply_speed_limiter(void)
             sleepTime = totalElapsedGameTime - elapsedRealTime;
         }
     }
+#endif
 
 
 #if defined(PROFILE)

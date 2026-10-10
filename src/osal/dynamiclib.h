@@ -24,6 +24,16 @@
 
 #include "api/m64p_types.h"
 
+#if defined(__EMSCRIPTEN__)
+typedef struct {
+    const char *name;
+    m64p_function function;
+} osal_static_symbol;
+
+/* NULL-terminated symbol table usable as the core's m64p_dynlib_handle */
+extern const osal_static_symbol osal_static_core_symbols[];
+#endif
+
 m64p_function osal_dynlib_getproc(m64p_dynlib_handle LibHandle, const char *pccProcedureName);
 
 #endif /* #define OSAL_DYNAMICLIB_H */

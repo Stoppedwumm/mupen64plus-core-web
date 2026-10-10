@@ -1,0 +1,17 @@
+# Apache configuration for the Mupen64Plus web build
+
+# WebAssembly must be served with the right MIME type to be streamed/compiled
+AddType application/wasm .wasm
+AddType application/javascript .js
+
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE application/wasm application/javascript text/html
+</IfModule>
+
+<IfModule mod_headers.c>
+    <FilesMatch "\.(wasm|js)$">
+        Header set Cache-Control "public, max-age=86400"
+    </FilesMatch>
+</IfModule>
+
+DirectoryIndex index.html

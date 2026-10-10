@@ -1,0 +1,37 @@
+diff --git a/src/OGLTexture.cpp b/src/OGLTexture.cpp
+index ec82451..199fa9a 100644
+--- a/src/OGLTexture.cpp
++++ b/src/OGLTexture.cpp
+@@ -137,6 +137,32 @@ void COGLTexture::EndUpdate(DrawInfo *di)
+     // Copy the image data from main memory to video card texture memory
+     // On little-endian systems (x86 and many others), ARGB datas send in BGRA order
+     // and RGBA datas are send as ABGR (something we try to avoid).
++#ifdef USE_GLES
++    if (m_glFmt == GL_RGBA)
++    {
++        // Texture data is BGRA; without GL_EXT_texture_format_BGRA8888
++        // (e.g. WebGL) swap red and blue, or every texture gets wrong colors.
++        static uint8 *swapped = NULL;
++        static size_t swappedSize = 0;
++        size_t size = (size_t) m_dwCreatedTextureWidth * m_dwCreatedTextureHeight * 4;
++        if (size > swappedSize)
++        {
++            free(swapped);
++            swapped = (uint8 *) malloc(size);
++            swappedSize = size;
++        }
++        const uint8 *src = (const uint8 *) m_pTexture;
++        for (size_t i = 0; i < size; i += 4)
++        {
++            swapped[i] = src[i + 2];
++            swapped[i + 1] = src[i + 1];
++            swapped[i + 2] = src[i];
++            swapped[i + 3] = src[i + 3];
++        }
++        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_dwCreatedTextureWidth, m_dwCreatedTextureHeight, m_glFmt, m_glType, swapped);
++    }
++    else
++#endif
+     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_dwCreatedTextureWidth, m_dwCreatedTextureHeight, m_glFmt, m_glType, m_pTexture);
+     OPENGL_CHECK_ERRORS;
+ 

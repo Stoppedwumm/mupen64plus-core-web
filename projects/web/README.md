@@ -46,8 +46,9 @@ downloads are blocked, clone them into the ports cache instead (see
   those tables, with the core's own API exposed the same way.
 * **Main loop:** the core runs its emulation loop inside `CoreDoCommand(M64CMD_EXECUTE)`,
   and `apply_speed_limiter()` in `src/main/main.c` suspends it to let the
-  browser present frames and handle input and audio: it sleeps for the rest
-  of each VI, or when running behind yields at least every 8 ms through a
+  browser present frames and handle input and audio: while ahead of schedule
+  it waits on `requestAnimationFrame`, so frames are produced in step with the
+  display, and when running behind it yields at least every 8 ms through a
   `MessageChannel` round trip, since `setTimeout(0)` is clamped to 4 ms.
   Suspension uses JSPI where the browser supports it and Asyncify otherwise
   (add `?asyncify` to the URL to force the fallback); the page picks the build.
@@ -64,7 +65,8 @@ downloads are blocked, clone them into the ports cache instead (see
   everything stays local.
 * **Plugin patches:** `patches/<plugin>.patch` is applied on top of the pinned
   plugin sources (audio-sdl: avoid dividing by a zero sample rate when the
-  audio device failed to open).
+  audio device failed to open; video-rice: swap red/blue when uploading
+  textures, since WebGL has no BGRA texture format).
 
 ## Controls
 

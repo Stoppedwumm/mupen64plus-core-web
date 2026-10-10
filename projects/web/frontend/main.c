@@ -20,6 +20,7 @@
 #define M64P_CORE_PROTOTYPES 1
 #include "m64p_common.h"
 #include "m64p_config.h"
+#include "m64p_debugger.h"
 #include "m64p_frontend.h"
 #include "m64p_types.h"
 #include "main/version.h"
@@ -285,6 +286,14 @@ EMSCRIPTEN_KEEPALIVE void web_set_paused(int paused)
 EMSCRIPTEN_KEEPALIVE void web_set_muted(int muted)
 {
     CoreDoCommand(M64CMD_CORE_STATE_SET, M64CORE_AUDIO_MUTE, &muted);
+}
+
+/* Start of emulated RDRAM in the wasm heap, for reading game state from
+ * the page (achievements). RDRAM is stored as native 32-bit words, so the
+ * byte at N64 address A is at offset (A ^ 3) on little-endian wasm. */
+EMSCRIPTEN_KEEPALIVE void *web_rdram(void)
+{
+    return DebugMemGetPointer(M64P_DBG_PTR_RDRAM);
 }
 
 EMSCRIPTEN_KEEPALIVE void web_reset(void)

@@ -234,8 +234,8 @@ link() {
         -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=134217728 -sSTACK_SIZE=1048576 \
         -sMODULARIZE=1 -sEXPORT_NAME=createMupen64Plus \
         -sMIN_WEBGL_VERSION=1 -sMAX_WEBGL_VERSION=2 -sFULL_ES2=1 \
-        -sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
-        -sEXPORTED_FUNCTIONS=_main,_web_save_state,_web_load_state,_web_toggle_pause,_web_set_paused,_web_set_muted,_web_reset,_web_stop,_web_frame_count,_web_set_speed_limiter \
+        -sEXPORTED_RUNTIME_METHODS=FS,IDBFS,HEAPU8,callMain -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 \
+        -sEXPORTED_FUNCTIONS=_main,_web_save_state,_web_load_state,_web_toggle_pause,_web_set_paused,_web_set_muted,_web_rdram,_web_reset,_web_stop,_web_frame_count,_web_set_speed_limiter \
         -lidbfs.js \
         --embed-file "$BUILDDIR/data@/m64p/data"
 }

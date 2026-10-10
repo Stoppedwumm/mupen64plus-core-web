@@ -74,6 +74,20 @@
   #corner svg { width: 55%; height: 55%; fill: none; stroke: currentColor; stroke-width: 2.2;
     stroke-linecap: round; stroke-linejoin: round; }
 
+  /* achievement popup */
+  #achievement { position: absolute; top: 2.5vmin; left: 50%; transform: translate(-50%, -150%);
+    display: flex; align-items: center; gap: .8em; padding: .7em 1.2em .7em .8em; border-radius: 14px;
+    background: linear-gradient(180deg, rgba(30, 34, 52, .95), rgba(14, 16, 26, .95));
+    border: 2px solid var(--gold); box-shadow: 0 .4em 1.4em rgba(0,0,0,.5);
+    transition: transform .35s cubic-bezier(.2, 1.4, .4, 1); pointer-events: none;
+    max-width: 92%; font-size: clamp(12px, 2.5vmin, 17px); }
+  #achievement.show { transform: translate(-50%, 0); }
+  #achievement .star { flex: none; width: 2.4em; height: 2.4em; }
+  #achievement .label { color: var(--gold); font-size: .78em; font-weight: 800; letter-spacing: .06em;
+    text-transform: uppercase; }
+  #achievement .title { font-weight: 800; }
+  #achievement .desc { color: var(--muted); font-size: .85em; }
+
   #toast { position: absolute; left: 50%; bottom: 4vmin; transform: translate(-50%, 1em); opacity: 0;
     background: var(--panel); padding: .5em 1em; border-radius: 999px; font-size: clamp(12px, 2.4vmin, 16px);
     transition: opacity .25s, transform .25s; pointer-events: none; white-space: nowrap; }
@@ -119,6 +133,11 @@
     </div>
 
     <div id="toast"></div>
+    <div id="achievement" role="status" aria-live="polite">
+      <svg class="star" viewBox="0 0 24 24"><path fill="#fbd000" stroke="#b8860b" stroke-width="1.2"
+        stroke-linejoin="round" d="M12 1.8l3.1 6.6 7.2.9-5.3 5 1.4 7.1L12 17.9l-6.4 3.5L7 14.3l-5.3-5 7.2-.9z"/></svg>
+      <div><div class="label">Achievement unlocked</div><div class="title"></div><div class="desc"></div></div>
+    </div>
   </div>
 </div>
 
@@ -321,6 +340,161 @@
   };
 
 
+
+  // Achievements, after the RetroAchievements set for Super Mario 64 (game
+  // 10003). Only the ones that can be decided from the game's save data are
+  // implemented: star totals, completed courses, castle secret stars,
+  // cannons and cap switches. The save data lives in RAM (gSaveBuffer, at
+  // 0x80202F00 in the European ROM) and is updated the moment a star or
+  // switch is collected, before the game writes it to EEPROM.
+  // Each key must exist as an achievement on the game's Gamplo page.
+  const achievements = {
+    SAVE_BUFFER: 0x80202F00,
+    FILE_SIZE: 56,          // struct SaveFile; two copies per file
+    COURSES: ["Bob-omb Battlefield", "Whomp's Fortress", 'Jolly Roger Bay', 'Cool, Cool Mountain',
+      "Big Boo's Haunt", 'Hazy Maze Cave', 'Lethal Lava Land', 'Shifting Sand Land',
+      'Dire, Dire Docks', "Snowman's Land", 'Wet-Dry World', 'Tall, Tall Mountain',
+      'Tiny-Huge Island', 'Tick Tock Clock', 'Rainbow Ride'],
+    COURSE_TITLES: ['Full Course in the Battlefield', 'Full Course in the Fortress', 'Full Course in the Bay',
+      'Full Course in the Cool Mountain', 'Full Course Haunted House', 'Full Course in the Maze Cave',
+      'Full Course in the Lava Land', 'Full Course in the Desert Land', 'Full Course in the Dire Docks',
+      "Full Course in the Snowman's Land", 'Full Course in the Wet-Dry World', 'Full Course in the Tall Mountain',
+      'Full Course in the Tiny-Huge Island', 'Full Course in the Tick Tock Clock', 'Full Course in the Rainbow'],
+    COURSE_KEYS: ['full-course-bob', 'full-course-wf', 'full-course-jrb', 'full-course-ccm', 'full-course-bbh',
+      'full-course-hmc', 'full-course-lll', 'full-course-ssl', 'full-course-ddd', 'full-course-sl',
+      'full-course-wdw', 'full-course-ttm', 'full-course-thi', 'full-course-ttc', 'full-course-rr'],
+
+    list: null,
+    unlocked: new Set(),
+    pending: [],
+    shown: [],
+    showing: false,
+    sending: false,
+    synced: false,
+
+    build() {
+      const stars = (n, key, title, desc, points) =>
+        ({ key, title, desc, points, test: (f) => f.stars >= n });
+      this.list = [
+        stars(1, 'stars-1', 'A New Journey', 'Grab your first Power Star.', 1),
+        stars(8, 'stars-8', 'Ready to Fight Bowser', 'Grab 8 Power Stars.', 3),
+        stars(30, 'stars-30', 'Ready to Rematch Bowser', 'Grab 30 Power Stars.', 5),
+        stars(50, 'stars-50', 'Lobby at the Top', 'Grab 50 Power Stars.', 10),
+        stars(70, 'stars-70', 'Ready for the Final Match', 'Grab 70 Power Stars.', 10),
+        stars(120, 'stars-120', 'Full Power', 'Grab 120 Power Stars.', 25),
+        ...this.COURSES.map((name, i) => ({
+          key: this.COURSE_KEYS[i], title: this.COURSE_TITLES[i],
+          desc: 'Collect all 7 Power Stars in ' + name + '.', points: 5,
+          test: (f) => f.courseStars[i] === 7 })),
+        { key: 'castle-secret-stars', title: 'Full Course Around the Castle',
+          desc: 'Collect all 15 Castle Secret Stars.', points: 10, test: (f) => f.secretStars >= 15 },
+        { key: 'cannoneer', title: 'Cannoneer', desc: 'Activate all 11 cannons in the courses.',
+          points: 10, test: (f) => f.cannons >= 11 },
+        { key: 'red-switch', title: 'Fly Baby Fly', desc: 'Activate the Red Switch.', points: 2,
+          test: (f) => (f.flags & 0x2) !== 0 },
+        { key: 'green-switch', title: 'Metal Head', desc: 'Activate the Green Switch.', points: 2,
+          test: (f) => (f.flags & 0x4) !== 0 },
+        { key: 'blue-switch', title: 'Invisible', desc: 'Activate the Blue Switch.', points: 3,
+          test: (f) => (f.flags & 0x8) !== 0 },
+      ];
+      try {
+        for (const key of JSON.parse(localStorage.getItem('sm64-achievements') || '[]')) this.unlocked.add(key);
+      } catch (e) { /* storage unavailable */ }
+    },
+
+    // Already unlocked on Gamplo: don't announce or send them again.
+    async syncFromGamplo() {
+      await cloud.ready;
+      try {
+        if (cloud.enabled) {
+          for (const a of await Gamplo.getAchievements()) if (a.unlocked) this.unlocked.add(a.key);
+          this.persist();
+        }
+      } catch (e) {
+        log('Could not load achievements: ' + e.message);
+      } finally {
+        this.synced = true;
+      }
+    },
+
+    persist() {
+      try { localStorage.setItem('sm64-achievements', JSON.stringify([...this.unlocked])); } catch (e) { /* ignore */ }
+    },
+
+    // Read the four save files (first copy) from emulated RAM.
+    readFiles() {
+      const heap = module.HEAPU8, base = module._web_rdram();
+      const byte = (addr) => heap[base + ((addr - 0x80000000) ^ 3)];
+      const pop = (v) => { let n = 0; for (; v; v &= v - 1) n++; return n; };
+      const files = [];
+      for (let i = 0; i < 4; i++) {
+        const a = this.SAVE_BUFFER + i * 2 * this.FILE_SIZE;
+        const flags = ((byte(a + 8) << 24) | (byte(a + 9) << 16) | (byte(a + 10) << 8) | byte(a + 11)) >>> 0;
+        const raw = [];
+        for (let c = 0; c < 25; c++) raw.push(byte(a + 12 + c));
+        const courseStars = raw.map((v) => pop(v & 0x7F));
+        const castleFlagStars = pop((flags >>> 24) & 0x7F);       // Toad and MIPS
+        const stars = courseStars.reduce((x, y) => x + y, 0) + castleFlagStars;
+        const secretStars = courseStars.slice(15).reduce((x, y) => x + y, 0) + castleFlagStars;
+        // a course's cannon flag is bit 7 of the next course's byte
+        const cannons = raw.slice(1).filter((v) => v & 0x80).length;
+        files.push({ flags, courseStars, stars, secretStars, cannons });
+      }
+      return files;
+    },
+
+    check() {
+      if (!running || !module || !this.list || !this.synced) return;
+      let files;
+      try { files = this.readFiles(); } catch (e) { return; }
+      for (const a of this.list) {
+        if (this.unlocked.has(a.key) || !files.some((f) => a.test(f))) continue;
+        this.unlocked.add(a.key);
+        this.persist();
+        this.pending.push(a.key);
+        this.announce(a);
+      }
+      this.send();
+    },
+
+    // Tell Gamplo, one at a time; failures are retried on the next check.
+    async send() {
+      if (this.sending || !this.pending.length || !cloud.enabled) return;
+      this.sending = true;
+      try {
+        while (this.pending.length) {
+          const key = this.pending[0];
+          try {
+            await Gamplo.unlockAchievement(key);
+          } catch (e) {
+            log('Achievement ' + key + ' not sent: ' + e.message);
+            if (/403|404|not found/i.test(e.message)) this.pending.shift();   // guest, or not set up
+            break;
+          }
+          this.pending.shift();
+        }
+      } finally {
+        this.sending = false;
+      }
+    },
+
+    announce(a) {
+      this.shown.push(a);
+      if (!this.showing) this.next();
+    },
+
+    next() {
+      const a = this.shown.shift(), el = $('achievement');
+      if (!a) { this.showing = false; return; }
+      this.showing = true;
+      el.querySelector('.title').textContent = a.title + ' · ' + a.points + (a.points === 1 ? ' pt' : ' pts');
+      el.querySelector('.desc').textContent = a.desc +
+        (cloud.onGamplo && !cloud.player ? ' Sign in to keep it.' : '');
+      el.classList.add('show');
+      setTimeout(() => { el.classList.remove('show'); setTimeout(() => this.next(), 450); }, 3600);
+    },
+  };
+
   // Render resolution: sharp on large and high-DPI screens, capped to keep
   // the GPU load reasonable.
   function renderSize() {
@@ -427,6 +601,9 @@
                   !new URLSearchParams(location.search).has('asyncify');
 
   cloud.init();
+  achievements.build();
+  achievements.syncFromGamplo();
+  setInterval(() => achievements.check(), 1000);
   setStatus('Loading…');
   const emulator = loadScript(useJspi ? 'mupen64plus-jspi.js' : 'mupen64plus.js').then(() => createMupen64Plus({
     canvas,

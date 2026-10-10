@@ -63,6 +63,14 @@ downloads are blocked, clone them into the ports cache instead (see
   when the cloud copy is newer. Save states (~1 MB compressed) do not fit a
   100 KB cloud slot and stay in the browser. Outside Gamplo or as a guest,
   everything stays local.
+* **Achievements:** 26 achievements from the RetroAchievements set for Super
+  Mario 64 (those that can be decided from save data: star totals, completed
+  courses, castle secret stars, cannons, cap switches) are checked every
+  second by reading the game's save buffer from emulated RAM (`gSaveBuffer`
+  at `0x80202F00`, which is specific to the European ROM). New ones show a
+  popup, are remembered in `localStorage` and are unlocked on Gamplo with
+  `Gamplo.unlockAchievement()`. Create them on the game's Gamplo page with the
+  keys in `gamplo-achievements.csv`.
 * **Plugin patches:** `patches/<plugin>.patch` is applied on top of the pinned
   plugin sources (audio-sdl: avoid dividing by a zero sample rate when the
   audio device failed to open; video-rice: swap red/blue when uploading
